@@ -1,0 +1,32 @@
+.program ws2812
+.side_set  1 opt
+
+; WS2812 (800kHz) 用の標準的なPIOプログラム
+; T1H/T0H, T1L/T0L をサイクル数で調整
+.define public T1 2
+.define public T2 5
+.define public T3 3
+
+.wrap_target
+bitloop:
+    out x, 1       side 0 [T3 - 1]
+    jmp !x do_zero side 1 [T1 - 1]
+    jmp  bitloop   side 1 [T2 - 1]
+do_zero:
+    nop            side 0 [T2 - 1]
+.wrap
+
+;    ; FIFO空検出
+;    pull   block         ; 新しいデータを取りに行く（無ければ待機）
+;    jmp    bitloop
+
+; ★ High出力で待機するIdleループ追加
+public idle:
+    nop            side 1
+
+public out0:
+    nop side 0
+
+public out1:
+    nop side 1
+
