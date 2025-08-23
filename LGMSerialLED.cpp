@@ -8,6 +8,7 @@
 #define PIN_WS2812_1 22 // GPIO 22 (29pin)
 #define BUTTON_PIN 28    // GP28 をプルアップ入力で使用（スイッチ）
 #include "LGMPat.h"     // パターン配列とカウント
+#include "./WS2812/include/GammaCorrector.h"
 
 static volatile uint8_t timer_count = 0;
 int iState = 0; // 0が開始、1が停止状態、2が歩き、3が走り
@@ -59,6 +60,9 @@ bool one_shot_cb(repeating_timer_t* rt)
 	return true;
 }
 
+
+
+
 int main()
 {
 	// WS2812 のタイミング定数が 125MHz 前提のため、起動直後に 125MHz に固定
@@ -90,7 +94,9 @@ int main()
 			led_matrix.DrawBuffer(LGMRed, 16, 16, 0, 0, 0x000700, false); // パターンを描画
 			led_matrix.ScanBuffer(true, false);
 			iState = 1;
-		} else if (iState == 1) {
+		}
+		else if (iState == 1)
+		{
 			// ボタンが押されたら、１０秒間隔のタイマーを開始する。
 			if (button_pressed()) {
 				// 時刻開始（マイクロ秒単位）
@@ -101,8 +107,9 @@ int main()
 				}
 				iState = 2;
 			}
-
-		} else if (iState == 2 || iState == 3) {
+		}
+		else if (iState == 2 || iState == 3)
+		{
 			int iWaitMs;
 			int iTransMs;
 			if (timer_count < 5){
