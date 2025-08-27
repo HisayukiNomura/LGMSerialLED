@@ -8,3 +8,5 @@ extern const std::uint32_t LGMPat[][16 * 16];
 extern const std::uint32_t LGMRed[];
 // LGMPat の総パターン数（定義側で sizeof から自動算出）
 extern const std::size_t LGMPatCount;
+extern const std::uint16_t iWaitLGMWalk;
+extern const std::uint16_t iWaitLGMRun;

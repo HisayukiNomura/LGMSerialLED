@@ -8,3 +8,8 @@ extern const std::uint32_t MRORun[][16 * 16];
 extern const std::uint32_t MROStay[];
 // LGMPat の総パターン数（定義側で sizeof から自動算出）
 extern const std::size_t MROPatCount;
+
+// 歩く速度
+extern const std::uint16_t iWaitMarioWalk;
+extern const std::uint16_t iWaitMarioRun;
+

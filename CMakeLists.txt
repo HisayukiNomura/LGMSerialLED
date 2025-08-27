@@ -48,7 +48,9 @@ pico_enable_stdio_usb(LGMSerialLED 0)
 target_link_libraries(LGMSerialLED
     pico_stdlib
     hardware_clocks
-    hardware_pio)
+    hardware_pio
+    hardware_gpio
+    )
 
 # Add the standard include files to the build
 target_include_directories(LGMSerialLED PRIVATE

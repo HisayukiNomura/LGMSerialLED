@@ -23,6 +23,18 @@ public:
     // gamma > 0 を想定。成功 true / 失敗 false（未初期化など）。
     bool setGamma(float gamma);
 
+    // 明度/コントラスト補正（各 -100..100 を想定、範囲外はクリップ）。
+    // 適用順序: コントラスト → 明度。内部作業バッファへ上書き適用。
+    // 返り値: 成功 true / 失敗 false（未初期化など）。
+    bool setBrightnessContrast(int brightnessPercent, int contrastPercent);
+
+    // チャネル別ダイナミックレンジ圧縮（0..255 絶対値）。
+    // v' = min + round((max-min) * v / 255) ただし v==0 は 0 を維持。
+    // 対象チャネルのみ適用。出力は 0..255 にクリップ。上書き累積。
+    bool setGreenRange(std::uint8_t minV = 0, std::uint8_t maxV = 255);
+    bool setRedRange  (std::uint8_t minV = 0, std::uint8_t maxV = 255);
+    bool setBlueRange (std::uint8_t minV = 0, std::uint8_t maxV = 255);
+
     // 指定パターンの先頭ポインタを返す（非 const）。範囲外は nullptr。
     std::uint32_t* getBufferPtr(std::size_t patternIndex);
 

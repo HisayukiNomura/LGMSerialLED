@@ -2,46 +2,99 @@
 #include <cstdint>
 #include <array>
 #include "pico/stdlib.h"
+#include "pico/time.h"
+// #include "pico/sleep.h"
+
 #include "hardware/clocks.h" // set_sys_clock_khz
 #include "./WS2812/include/WS2812.h"
-#include "pico/time.h"
-#define PIN_WS2812_1 22 // GPIO 22 (29pin)
-#define BUTTON_PIN 28    // GP28 をプルアップ入力で使用（スイッチ）
-#include "LGMPat.h"     // パターン配列とカウント
-#include "./WS2812/include/GammaCorrector.h"
 
+#define PIN_WS2812_1 22     // GPIO 22 (29pin)
+#define BUTTON_PIN_ENTER 28 // GP28 をプルアップ入力で使用（スイッチ）
+#define BUTTON_PIN_SET 27   // GP27をキャラ変更で使用
+
+#include "LGMPat.h" // パターン配列とカウント
+#include "MROPat.h" // マリオのパターン配列とカウント
+#include "./WS2812/include/GammaCorrector.h"
+#include "PatManager.h"
 static volatile uint8_t timer_count = 0;
-int iState = 0; // 0が開始、1が停止状態、2が歩き、3が走り
+
+enum STATE {
+	STATE_HIBER = 0,
+	STATE_STOP = 1,
+	STATE_START = 2,
+	STATE_WALKING = 3,
+	STATE_RUNNING = 4
+};
+STATE iState = STATE_HIBER; // 0が開始、1が停止状態、2が歩き、3が走り
 
 // デバウンス付き：押下（プルアップなので Active-Low）を1回だけ検出
-static bool button_pressed()
+// 任意GPIOのボタンを処理できるよう、GPIOごとに状態を保持する
+static bool button_pressed(uint gpio_pin)
 {
-	static bool last_reading = true; // 初期は未押下(High)
-	static bool debounced = true;
-	static uint32_t last_change_ms = 0;
-	static bool armed = true; // 押下1回につき1度だけtrueを返す
+	struct DebounceState {
+		bool used = false;
+		uint pin = 0;
+		bool last_reading = true; // 直近の生読み取り
+		bool debounced = true;    // デバウンス後の安定状態
+		uint32_t last_change_ms = 0;
+		bool armed = true;        // 押下1回につき1度だけtrueを返す
+		bool initialized = false; // 初回初期化済みフラグ
+	};
 
-	bool reading = gpio_get(BUTTON_PIN);
+	// 同時に扱うGPIOの上限（必要に応じて拡張可）
+	static DebounceState states[8];
+
+	// スロット検索/確保
+	DebounceState* st = nullptr;
+	for (auto& s : states) {
+		if (s.used && s.pin == gpio_pin) {
+			st = &s;
+			break;
+		}
+	}
+	if (!st) {
+		for (auto& s : states) {
+			if (!s.used) {
+				st = &s;
+				break;
+			}
+		}
+	}
+	if (!st) {
+		// スロット不足時は最初を使い回し（稀なケース）
+		st = &states[0];
+	}
+	if (!st->used) {
+		st->used = true;
+		st->pin = gpio_pin;
+		st->last_reading = gpio_get(gpio_pin);
+		st->debounced = st->last_reading;
+		st->last_change_ms = to_ms_since_boot(get_absolute_time());
+		st->armed = true;
+		st->initialized = true;
+	}
+
+	bool reading = gpio_get(gpio_pin);
 	uint32_t now_ms = to_ms_since_boot(get_absolute_time());
 
-	if (reading != last_reading) {
-		last_change_ms = now_ms; // 変化を検出、デバウンス計測開始
-		last_reading = reading;
+	if (reading != st->last_reading) {
+		st->last_change_ms = now_ms; // 変化を検出、デバウンス計測開始
+		st->last_reading = reading;
 	}
 
 	// 30ms安定したら確定
-	if ((now_ms - last_change_ms) > 30) {
-		if (debounced != reading) {
-			debounced = reading;
-			if (debounced == false) {
+	if ((now_ms - st->last_change_ms) > 30) {
+		if (st->debounced != reading) {
+			st->debounced = reading;
+			if (st->debounced == false) {
 				// 立下り＝押下確定（Active-Low）
-				if (armed) {
-					armed = false; // 次の解放まで無効化
+				if (st->armed) {
+					st->armed = false; // 次の解放まで無効化
 					return true;
 				}
 			} else {
 				// 解放で再武装
-				armed = true;
+				st->armed = true;
 			}
 		}
 	}
@@ -54,17 +107,72 @@ bool one_shot_cb(repeating_timer_t* rt)
 	timer_count++;
 	if (timer_count >= 6) {
 		timer_count = 0;
-		iState = 0;
+		iState = STATE_STOP;
 		return false; // タイマーは停止
 	}
 	return true;
 }
 
+void gpio_callback(uint gpio, uint32_t events)
+{
+	if (gpio == BUTTON_PIN_ENTER) {
+		// 割り込み発生時の処理
+		gpio_put(PICO_DEFAULT_LED_PIN, 0);
+	} else if (gpio == BUTTON_PIN_SET) {
+		// 割り込み発生時の処理
+		gpio_put(PICO_DEFAULT_LED_PIN, 1);
+	}
+}
 
+struct COLOR_RANGE {
+	uint8_t min;
+	uint8_t max;
+};
+
+class Patterns {
+	public:
+	const std::uint32_t* PatStopFlat;
+	const std::uint32_t* PatWalkFlat;
+	size_t PatWalkCount;
+	COLOR_RANGE GreenRange;
+	COLOR_RANGE RedRange;
+	COLOR_RANGE BlueRange;
+	float Gamma;
+	uint8_t BrightnessPercent;
+	uint8_t ContrastPercent;
+	bool isColorReplace;
+	bool isOverlay;
+	uint16_t iWaitWalk;
+	uint16_t iWaitRun;
+
+	void setPatManager(PatManager &pmStay,  PatManager& pmRun) 
+	{
+		pmStay.init(PatStopFlat, 1, 16, 16);
+		pmStay.setGreenRange(GreenRange.min, GreenRange.max);
+		pmStay.setRedRange(RedRange.min, RedRange.max);
+		pmStay.setBlueRange(BlueRange.min, BlueRange.max);
+		if (Gamma > 0.0f) pmStay.setGamma(Gamma);
+		if (BrightnessPercent !=0 || ContrastPercent != 0) pmStay.setBrightnessContrast(BrightnessPercent, ContrastPercent);
+
+		pmRun.init(PatWalkFlat, PatWalkCount, 16, 16);
+		pmRun.setGreenRange(GreenRange.min, GreenRange.max);;
+		pmRun.setRedRange(RedRange.min,RedRange.max);
+		pmRun.setBlueRange(BlueRange.min, BlueRange.max);
+		if (Gamma > 0.0f) pmRun.setGamma(Gamma);
+		if (BrightnessPercent !=0 || ContrastPercent != 0) pmRun.setBrightnessContrast(BrightnessPercent, ContrastPercent);
+
+	}
+
+} CharInfo[] = {
+	{LGMRed, &LGMPat[0][0], LGMPatCount, {0, 0}, {0, 0}, {0, 0}, 1.0f, 0, 0, true, true, iWaitLGMWalk, iWaitLGMRun},
+	{MROStay, &MRORun[0][0], MROPatCount, {0, 8}, {8, 32}, {8, 48}, 1.0f, 0, 0, false, false, iWaitMarioWalk, iWaitMarioRun}
+};
 
 
 int main()
 {
+	PatManager pmRun;
+	PatManager pmStay;
 	// WS2812 のタイミング定数が 125MHz 前提のため、起動直後に 125MHz に固定
 	set_sys_clock_khz(125000, true);
 
@@ -73,9 +181,14 @@ int main()
 	WS2812 led_matrix(PIN_WS2812_1, 16, 16);
 
 	// ボタン(GP28)をプルアップ入力で初期化
-	gpio_init(BUTTON_PIN);
-	gpio_pull_up(BUTTON_PIN);
-	gpio_set_dir(BUTTON_PIN, GPIO_IN);
+	gpio_init(BUTTON_PIN_ENTER);
+	gpio_pull_up(BUTTON_PIN_ENTER);
+	gpio_set_dir(BUTTON_PIN_ENTER, GPIO_IN);
+
+	gpio_init(BUTTON_PIN_SET);
+	gpio_set_function(BUTTON_PIN_SET, GPIO_FUNC_SIO);
+	gpio_pull_up(BUTTON_PIN_SET);
+	gpio_set_dir(BUTTON_PIN_SET, GPIO_IN);
 
 	led_matrix.Reset();
 	led_matrix.Clear(0);
@@ -87,54 +200,105 @@ int main()
 	uint64_t start_us = time_us_64();
 	repeating_timer_t rt;
 
+	int iCharNo = 0;
+	set_sys_clock_khz(125000, true);
+	
 
 	while (true) {
-		if (iState == 0) {
-			led_matrix.Reset();
-			led_matrix.DrawBuffer(LGMRed, 16, 16, 0, 0, 0x000700, false); // パターンを描画
-			led_matrix.ScanBuffer(true, false);
-			iState = 1;
-		}
-		else if (iState == 1)
-		{
-			// ボタンが押されたら、１０秒間隔のタイマーを開始する。
-			if (button_pressed()) {
-				// 時刻開始（マイクロ秒単位）
-				// １０秒間隔タイマー
-				if (!add_repeating_timer_ms(10000, one_shot_cb, NULL, &rt)) {
-					printf("Failed to add timer\n");
-					return 1;
+
+		while (true) {
+			if (iState == STATE_HIBER) {
+				// アクティブローのボタンなので、押下で起床するよう立下りエッジで割り込み
+				gpio_set_irq_enabled_with_callback(BUTTON_PIN_ENTER, GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+				gpio_set_irq_enabled_with_callback(BUTTON_PIN_SET,   GPIO_IRQ_EDGE_FALL, true, &gpio_callback);
+				led_matrix.Reset();
+				led_matrix.Clear(0);
+				led_matrix.ScanBuffer();
+				__asm("  wfi");
+				gpio_set_irq_enabled_with_callback(BUTTON_PIN_ENTER, GPIO_IRQ_EDGE_FALL, false, &gpio_callback);
+				gpio_set_irq_enabled_with_callback(BUTTON_PIN_SET,   GPIO_IRQ_EDGE_FALL, false, &gpio_callback);
+
+				iState = STATE_STOP;
+
+			} else if (iState == STATE_STOP) {
+				led_matrix.Reset();
+				CharInfo[iCharNo].setPatManager(pmStay, pmRun);
+
+
+
+				if (CharInfo[iCharNo].isColorReplace) {
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmStay.getBufferPtr(0));
+					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0x000700, false); // パターンを描画
+				} else {
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmStay.getBufferPtr(0));
+					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0, false); // パターンを描画
 				}
-				iState = 2;
-			}
-		}
-		else if (iState == 2 || iState == 3)
-		{
-			int iWaitMs;
-			int iTransMs;
-			if (timer_count < 5){
-				iWaitMs = 120;
-				iTransMs = iWaitMs / 4;
-			} else {
-				iWaitMs = 30;
-				iTransMs = 5;
-			}
-			// 一つ前のパターンを暗く表示
-			led_matrix.Reset();
-			led_matrix.DrawBuffer(LGMPat[prevPatNo], 16, 16, 0, 0, 0x030000, true); // パターンを描画 (オーバーレイで短い時間を表示)
-			led_matrix.DrawBuffer(LGMPat[currPatNo], 16, 16, 0, 0, 0x060000, true); // パターンを描画 (オーバーレイで短い時間を表示)
-			led_matrix.ScanBuffer(true, false);
-			sleep_ms(iTransMs);
+				led_matrix.ScanBuffer(true, false);
 
-			led_matrix.Reset();
-			led_matrix.DrawBuffer(LGMPat[currPatNo], 16, 16, 0, 0, 0x070000, false); // パターンを描画
-			led_matrix.ScanBuffer(true, false);
+				iState = STATE_START;
+			} else if (iState == STATE_START) {
 
-			// led_matrix.Keep();
-			sleep_ms(iWaitMs);
-			prevPatNo = currPatNo;                              // 前のパターン番号を保存
-			if (++currPatNo >= static_cast<int>(LGMPatCount)) { // パターン番号設定
-				currPatNo = 0;                                  // パターン番号をリセット
+				// ボタンが押されたら、１０秒間隔のタイマーを開始する。
+				if (button_pressed(BUTTON_PIN_ENTER)) {
+					// 時刻開始（マイクロ秒単位）
+					// １０秒間隔タイマー
+					if (!add_repeating_timer_ms(10000, one_shot_cb, NULL, &rt)) {
+						printf("Failed to add timer\n");
+						return 1;
+					}
+					iState = STATE_WALKING;
+				} else if (button_pressed(BUTTON_PIN_SET)) {
+					// キャラ変更ボタンが押された場合の処理
+					iCharNo++;
+					if (iCharNo >= (sizeof(CharInfo) / sizeof(CharInfo[0]))) {
+						iCharNo = 0;
+					}	
+					iState = STATE_STOP;
+				}
+			} else if (iState == STATE_WALKING || iState == STATE_RUNNING) {
+				int iWaitMs;
+				int iTransMs;
+				if (timer_count < 5) {
+					iWaitMs = CharInfo[iCharNo].iWaitWalk;
+					iTransMs = iWaitMs / 4;
+				} else {
+					iWaitMs = CharInfo[iCharNo].iWaitRun;
+					iTransMs = iWaitMs / 6;
+				}
+				// 一つ前のパターンを暗く表示
+				led_matrix.Clear(0);
+
+				led_matrix.Reset();
+				if (CharInfo[iCharNo].isColorReplace) {
+					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(prevPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo)); // 明示的にconstへ
+					led_matrix.DrawBuffer(bufPrev, 16, 16, 0, 0, 0x030000, CharInfo[iCharNo].isOverlay);              // パターンを描画 (オーバーレイで短い時間を表示)
+					led_matrix.DrawBuffer(bufCurr, 16, 16, 0, 0, 0x060000, CharInfo[iCharNo].isOverlay);             // パターンを描画 (オーバーレイで短い時間を表示)
+				} else {
+					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(prevPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo)); // 明示的にconstへ
+					led_matrix.DrawBuffer(bufPrev, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画 (オーバーレイで短い時間を表示)
+					led_matrix.DrawBuffer(bufCurr, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画 (オーバーレイで短い時間を表示)
+				}
+				led_matrix.ScanBuffer(true, false);
+				sleep_ms(iTransMs);
+
+				led_matrix.Reset();
+				if (CharInfo[iCharNo].isColorReplace) {
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo));    // 明示的にconstへ
+					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0x070000, CharInfo[iCharNo].isOverlay);                // パターンを描画
+				} else {
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo)); // 明示的にconstへ
+					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画
+				}
+				led_matrix.ScanBuffer(true, false);
+
+				// led_matrix.Keep();
+				sleep_ms(iWaitMs);
+				prevPatNo = currPatNo;             // 前のパターン番号を保存
+				if (++currPatNo >= CharInfo[iCharNo].PatWalkCount) { // パターン番号設定
+					currPatNo = 0;                 // パターン番号をリセット
+				}
 			}
 		}
 	}
