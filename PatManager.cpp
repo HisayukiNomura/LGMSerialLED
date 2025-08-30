@@ -111,7 +111,7 @@ bool PatManager::init(const std::uint32_t* srcFlat,
     count_ = count;
     width_ = width;
     height_ = height;
-
+    isInitialized = true;
 	return true;
 }
 

@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(LGMSerialLED LGMSerialLED.cpp LGMPat.cpp MROPat.cpp WS2812/source/WS2812.cpp WS2812/source/GammaCollector.cpp PatManager.cpp)
+add_executable(LGMSerialLED LGMSerialLED.cpp PatSignal.cpp PatMario.cpp PatZelda.cpp WS2812/source/WS2812.cpp WS2812/source/GammaCollector.cpp PatManager.cpp)
 
 pico_set_program_name(LGMSerialLED "LGMSerialLED")
 pico_set_program_version(LGMSerialLED "0.1")

@@ -1,7 +1,7 @@
 // 固定幅整数型（std::uint32_t など）
 #include <cstdint>
 #include <cstddef>
-#include "MROPat.h"
+#include "PatMario.h"
 #define PAT_0                                                                                                                                                        \
 	{0xFF0000, 0x00FF00, 0x0000FF, 0x000000, 0x000000, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, \
 	 0xa00000, 0x00a000, 0x0000a0, 0x000000, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x38F800, 0x000000, 0x000000, \
@@ -75,5 +75,5 @@ extern const std::uint32_t MROStay[] = PAT_0;
 extern const std::uint32_t MRORun[][16 * 16] = {PAT_1, PAT_2, PAT_3};
 extern const std::size_t MROPatCount = sizeof(MRORun) / sizeof(MRORun[0]);
 
-extern const std::uint16_t iWaitMarioWalk = 80;
-extern const std::uint16_t iWaitMarioRun = 60;
+extern const std::uint16_t iWaitZELDAWalk = 80;
+extern const std::uint16_t iWaitZELDARun = 60;

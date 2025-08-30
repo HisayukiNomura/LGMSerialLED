@@ -12,8 +12,9 @@
 #define BUTTON_PIN_ENTER 28 // GP28 をプルアップ入力で使用（スイッチ）
 #define BUTTON_PIN_SET 27   // GP27をキャラ変更で使用
 
-#include "LGMPat.h" // パターン配列とカウント
-#include "MROPat.h" // マリオのパターン配列とカウント
+#include "PatSignal.h" // パターン配列とカウント
+#include "PatMario.h" // マリオのパターン配列とカウント
+#include "PatZelda.h"	// ゼルダのパターン配列とカウント
 #include "./WS2812/include/GammaCorrector.h"
 #include "PatManager.h"
 static volatile uint8_t timer_count = 0;
@@ -131,10 +132,10 @@ struct COLOR_RANGE {
 
 class Patterns {
 	public:
-	const std::uint32_t* PatStopFlat;
-	const std::uint32_t* PatWalkFlat;
-	size_t PatWalkCount;
-	COLOR_RANGE GreenRange;
+	const std::uint32_t* PatStopFlat;			/// 停止パターンは１つだけ
+	const std::uint32_t* PatWalkFlat[4];		///　パターングループとして４つまで登録可能
+	size_t PatWalkCount;						/// 各パターンの数。本当は、パターングループに含まれるパターンごとに違う可能性もあるが、ゲームという特性上ほぼ同じなので１つにする。
+	COLOR_RANGE GreenRange;						/// 
 	COLOR_RANGE RedRange;
 	COLOR_RANGE BlueRange;
 	float Gamma;
@@ -145,7 +146,7 @@ class Patterns {
 	uint16_t iWaitWalk;
 	uint16_t iWaitRun;
 
-	void setPatManager(PatManager &pmStay,  PatManager& pmRun) 
+	void setPatManager(PatManager &pmStay,  PatManager* pmRun) 
 	{
 		pmStay.init(PatStopFlat, 1, 16, 16);
 		pmStay.setGreenRange(GreenRange.min, GreenRange.max);
@@ -154,25 +155,25 @@ class Patterns {
 		if (Gamma > 0.0f) pmStay.setGamma(Gamma);
 		if (BrightnessPercent !=0 || ContrastPercent != 0) pmStay.setBrightnessContrast(BrightnessPercent, ContrastPercent);
 
-		pmRun.init(PatWalkFlat, PatWalkCount, 16, 16);
-		pmRun.setGreenRange(GreenRange.min, GreenRange.max);;
-		pmRun.setRedRange(RedRange.min,RedRange.max);
-		pmRun.setBlueRange(BlueRange.min, BlueRange.max);
-		if (Gamma > 0.0f) pmRun.setGamma(Gamma);
-		if (BrightnessPercent !=0 || ContrastPercent != 0) pmRun.setBrightnessContrast(BrightnessPercent, ContrastPercent);
+		pmRun[0].init(PatWalkFlat[0], PatWalkCount, 16, 16);
+		pmRun[0].setGreenRange(GreenRange.min, GreenRange.max);
+		pmRun[0].setRedRange(RedRange.min, RedRange.max);
+		pmRun[0].setBlueRange(BlueRange.min, BlueRange.max);
+		if (Gamma > 0.0f) pmRun[0].setGamma(Gamma);
+		if (BrightnessPercent !=0 || ContrastPercent != 0) pmRun[0].setBrightnessContrast(BrightnessPercent, ContrastPercent);
 
 	}
 
 } CharInfo[] = {
-	{LGMRed, &LGMPat[0][0], LGMPatCount, {0, 0}, {0, 0}, {0, 0}, 1.0f, 0, 0, true, true, iWaitLGMWalk, iWaitLGMRun},
-	{MROStay, &MRORun[0][0], MROPatCount, {0, 8}, {8, 32}, {8, 48}, 1.0f, 0, 0, false, false, iWaitMarioWalk, iWaitMarioRun}
-};
+	{LGMRed, {&LGMPat[0][0], NULL, NULL, NULL}, LGMPatCount, {0, 0}, {0, 0}, {0, 0}, 1.0f, 0, 0, true, true, iWaitLGMWalk, iWaitLGMRun},
+	{MROStay, {&MRORun[0][0], NULL, NULL, NULL}, MROPatCount, {0, 16}, {8, 32}, {8, 48}, 1.0f, 0, 0, false, false, iWaitMarioWalk, iWaitMarioRun},
+	{ZELDAStay, {&ZELDARight[0][0], &ZELDAFront[0][0], &ZELDALeft[0][0], &ZELDABack[0][0]}, ZELDARightCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitZELDAWalk, iWaitZELDARun}};
 
-
+PatManager pmRun[4];
+PatManager pmStay;
 int main()
 {
-	PatManager pmRun;
-	PatManager pmStay;
+
 	// WS2812 のタイミング定数が 125MHz 前提のため、起動直後に 125MHz に固定
 	set_sys_clock_khz(125000, true);
 
@@ -237,6 +238,10 @@ int main()
 
 				iState = STATE_START;
 			} else if (iState == STATE_START) {
+				// アイドル監視: STATE_STARTに入ってからの無操作時間を計測
+				static uint32_t idle_start_ms = 0;
+				uint32_t now_ms_state = to_ms_since_boot(get_absolute_time());
+				if (idle_start_ms == 0) idle_start_ms = now_ms_state;
 
 				// ボタンが押されたら、１０秒間隔のタイマーを開始する。
 				if (button_pressed(BUTTON_PIN_ENTER)) {
@@ -246,6 +251,7 @@ int main()
 						printf("Failed to add timer\n");
 						return 1;
 					}
+					idle_start_ms = 0; // 動作開始でアイドル計測はリセット
 					iState = STATE_WALKING;
 				} else if (button_pressed(BUTTON_PIN_SET)) {
 					// キャラ変更ボタンが押された場合の処理
@@ -253,8 +259,17 @@ int main()
 					if (iCharNo >= (sizeof(CharInfo) / sizeof(CharInfo[0]))) {
 						iCharNo = 0;
 					}	
+					idle_start_ms = now_ms_state; // 操作があったので起点を更新
 					iState = STATE_STOP;
+				} else {
+					// 無操作が30秒続いたら休止へ
+					if ((now_ms_state - idle_start_ms) >= 30000u) {
+						idle_start_ms = 0;
+						iState = STATE_HIBER;
+					}
 				}
+
+
 			} else if (iState == STATE_WALKING || iState == STATE_RUNNING) {
 				int iWaitMs;
 				int iTransMs;
@@ -270,13 +285,13 @@ int main()
 
 				led_matrix.Reset();
 				if (CharInfo[iCharNo].isColorReplace) {
-					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(prevPatNo)); // 明示的にconstへ
-					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(prevPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo)); // 明示的にconstへ
 					led_matrix.DrawBuffer(bufPrev, 16, 16, 0, 0, 0x030000, CharInfo[iCharNo].isOverlay);              // パターンを描画 (オーバーレイで短い時間を表示)
 					led_matrix.DrawBuffer(bufCurr, 16, 16, 0, 0, 0x060000, CharInfo[iCharNo].isOverlay);             // パターンを描画 (オーバーレイで短い時間を表示)
 				} else {
-					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(prevPatNo)); // 明示的にconstへ
-					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(prevPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo)); // 明示的にconstへ
 					led_matrix.DrawBuffer(bufPrev, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画 (オーバーレイで短い時間を表示)
 					led_matrix.DrawBuffer(bufCurr, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画 (オーバーレイで短い時間を表示)
 				}
@@ -285,10 +300,10 @@ int main()
 
 				led_matrix.Reset();
 				if (CharInfo[iCharNo].isColorReplace) {
-					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo));    // 明示的にconstへ
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo));    // 明示的にconstへ
 					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0x070000, CharInfo[iCharNo].isOverlay);                // パターンを描画
 				} else {
-					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun.getBufferPtr(currPatNo)); // 明示的にconstへ
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo)); // 明示的にconstへ
 					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画
 				}
 				led_matrix.ScanBuffer(true, false);

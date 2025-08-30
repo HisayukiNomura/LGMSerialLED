@@ -9,6 +9,7 @@
 // - 元データの保持は不要という要件のため、setGamma は内部作業バッファを上書きで適用。
 // - 複数インスタンス生成可。
 class PatManager {
+    bool isInitialized = false;
 public:
     PatManager() = default;
 
