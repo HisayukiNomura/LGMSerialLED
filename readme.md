@@ -1,5 +1,7 @@
 # 小緑人とは
 
+手っ取り早くソースコードが見たい、という人は[ここをクリック](#ソースコード)
+
 台湾が好きで時々遊びに行きます。食べ物がおいしく、観光地もあります。台北を含む各地に電気街もあります。
 
 台北の電気街は光華商場というビルを中心とした一角です。光華商場には1Fに名だたるPCメーカーが軒を連ね、２Fは大手ショップやマザーボードメーカと、上に行くにしたがって、怪しいお店が増えていき、５Fくらいからワケがワカラナイ、８０年代の秋葉原のようになってきます。
@@ -25,8 +27,7 @@
 
 こう考えると、マトリックスLEDで実現するのが現実的でしょう。
 
-
-# 我が家にやってきた小緑人
+# 走れ！小緑人
 
 これが作成された小緑人です。
 <iframe width="320" height="320" src="https://www.youtube.com/embed/Dc_bQSexsT8" title="小緑人" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
@@ -194,8 +195,7 @@ FIFOで受け取ったデータを、逐次LEDに送出するというPIOプロ�
 これをクラスとしてまとめておけば、汎用的に使用できるかもしれません。
 
 ### ソースコード
-ソースコードはGitHubにて公開しています。
-
+ソースコードは[GitHub](https://github.com/HisayukiNomura/LGMSerialLED)にて公開しています。
 
 ---
 
