@@ -1,3 +1,9 @@
+/**
+ * @brief LittleGreenMan: WS2812行列にキャラクタパターンを表示するメインアプリ。
+ * @details
+ * - RP2350(Pico 2) + PIO駆動WS2812。ボタンで開始/キャラ変更、アイドルで休止へ遷移します。
+ * - PatManagerでパターンを前処理（ガンマ/レンジ/明度/コントラスト）後、WS2812へ送出します。
+ */
 #include <stdio.h>
 #include <cstdint>
 #include <array>
@@ -20,9 +26,12 @@
 
 #include "./WS2812/include/GammaCorrector.h"
 #include "PatManager.h"
-static volatile uint8_t timer_count = 0;
-static volatile bool timer_change = false;
+static volatile uint8_t timer_count = 0; ///< 10秒タイマーの経過カウント(最大6)
+static volatile bool timer_change = false; ///< タイマー境界のフラグ
 
+/**
+ * @brief アプリの状態遷移を表す列挙。
+ */
 enum STATE {
 	STATE_HIBER = 0,
 	STATE_STOP = 1,
@@ -30,10 +39,15 @@ enum STATE {
 	STATE_WALKING = 3,
 	STATE_RUNNING = 4
 };
-STATE iState = STATE_HIBER; // 0が開始、1が停止状態、2が歩き、3が走り
+STATE iState = STATE_HIBER; ///< 現在の状態（開始=休止）
 
 // デバウンス付き：押下（プルアップなので Active-Low）を1回だけ検出
 // 任意GPIOのボタンを処理できるよう、GPIOごとに状態を保持する
+/**
+ * @brief デバウンス付きのボタン押下検出（Active-Low, 1回/押下）。
+ * @param gpio_pin 対象GPIO
+ * @return 押下エッジでtrue（1回のみ）
+ */
 static bool button_pressed(uint gpio_pin)
 {
 	struct DebounceState {
@@ -106,6 +120,11 @@ static bool button_pressed(uint gpio_pin)
 	return false;
 }
 
+/**
+ * @brief 10秒タイマーのコールバック。6回到達で停止。
+ * @param rt タイマー
+ * @return 継続可否（6回でfalse）
+ */
 bool one_shot_cb(repeating_timer_t* rt)
 {
 	(void)rt;
@@ -119,6 +138,9 @@ bool one_shot_cb(repeating_timer_t* rt)
 	return true;
 }
 
+/**
+ * @brief GPIO割り込みコールバック（休止復帰の可視化）。
+ */
 void gpio_callback(uint gpio, uint32_t events)
 {
 	if (gpio == BUTTON_PIN_ENTER) {
@@ -130,11 +152,13 @@ void gpio_callback(uint gpio, uint32_t events)
 	}
 }
 
-struct COLOR_RANGE {
-	uint8_t min;
-	uint8_t max;
-};
+/** @brief 色レンジ指定（各チャネルの最小/最大）。 */
+struct COLOR_RANGE { uint8_t min; uint8_t max; };
 
+/**
+ * @brief キャラクタごとの描画設定とパターン群。
+ * @details 停止1枚 + 最大4グループの連番パターンで構成します。
+ */
 class Patterns {
 	public:
 	const std::uint32_t* PatStopFlat;			/// 停止パターンは１つだけ
@@ -151,6 +175,11 @@ class Patterns {
 	uint16_t iWaitWalk;
 	uint16_t iWaitRun;
 
+	/**
+	 * @brief PatManagerへパターンをロードし、補正を適用します。
+	 * @param pmStay 停止パターン用
+	 * @param pmRun  走行パターン用(最大4グループ)
+	 */
 	void setPatManager(PatManager &pmStay,  PatManager* pmRun) 
 	{
 		pmStay.reset();
@@ -185,8 +214,12 @@ class Patterns {
 	{DQ3Stay, {&DQ3Right[0][0], &DQ3Front[0][0], &DQ3Left[0][0], &DQ3Back[0][0]}, DQ3RightCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitDQ3Walk, iWaitDQ3Run},
 
 };
-PatManager pmRun[4];
-PatManager pmStay;
+PatManager pmRun[4]; ///< 走行用パターングループ
+PatManager pmStay;   ///< 停止表示用
+/**
+ * @brief エントリーポイント。
+ * @return 実行ステータス
+ */
 int main()
 {
 

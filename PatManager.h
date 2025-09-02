@@ -4,55 +4,75 @@
 #include <cstddef>
 #include <memory>
 
-// PatManager: パターン配列を内部に保持し、ガンマ補正を上書き適用するシンプルな管理クラス。
-// - フラット配列入力（0x00GGRRBB の 32bit ピクセル）。
-// - 元データの保持は不要という要件のため、setGamma は内部作業バッファを上書きで適用。
-// - 複数インスタンス生成可。
+/**
+ * @brief パターン配列(0x00GGRRBB)を保持し、各種補正を上書き適用する管理クラス。
+ * @details
+ * - フラット配列を内部バッファにコピーして保持し、その上で LUT ベースの変換（ガンマ/明度/コントラスト/各色レンジ）を累積適用します。
+ * - 元データを保持しない要件のため、すべて破壊的（in-place）に更新します。
+ * - 複数インスタンスに対応。
+ */
 class PatManager {
 public:
-    bool isInitialized;
+    bool isInitialized; ///< 初期化済みフラグ
 public:
-    PatManager() {
-        isInitialized = false;
-    }
+    /** @brief 既定コンストラクタ。@details フラグは未初期化(false)。 */
+    PatManager() { isInitialized = false; }
+    /** @brief デストラクタ。@details 内部バッファを解放します。 */
     ~PatManager();
-	void reset();
+    /** @brief 内部状態を解放/初期化します。@return なし */
+    void reset();
     
-
-    // 初期化: フラット配列 srcFlat から count 個のパターン（各 width*height ピクセル）をコピーして内部保持。
-    // 戻り値: 成功 true / 失敗 false（引数不正や確保失敗など）。
+    /**
+     * @brief フラット配列から内部バッファを確保・コピーします。
+     * @param srcFlat 0x00GGRRBB のフラット配列
+     * @param count パターン数
+     * @param width 幅(ピクセル)
+     * @param height 高さ(ピクセル)
+     * @return 成功ならtrue
+     */
     bool init(const std::uint32_t* srcFlat,
               std::size_t count,
               std::uint16_t width,
               std::uint16_t height);
 
-    // ガンマ補正を現在の内部バッファに上書き適用（G/R/B 各 8bit に同一ガンマを適用）。
-    // gamma > 0 を想定。成功 true / 失敗 false（未初期化など）。
+    /**
+     * @brief ガンマ補正を上書き適用します（G/R/B同一ガンマ）。
+     * @param gamma ガンマ値(>0)
+     * @return 成功ならtrue
+     */
     bool setGamma(float gamma);
 
-    // 明度/コントラスト補正（各 -100..100 を想定、範囲外はクリップ）。
-    // 適用順序: コントラスト → 明度。内部作業バッファへ上書き適用。
-    // 返り値: 成功 true / 失敗 false（未初期化など）。
+    /**
+     * @brief 明度/コントラスト補正を上書き適用します。
+     * @param brightnessPercent 明度(-100..100)
+     * @param contrastPercent コントラスト(-100..100)
+     * @return 成功ならtrue
+     * @details 適用順は コントラスト→明度。範囲外は内部でクリップします。
+     */
     bool setBrightnessContrast(int brightnessPercent, int contrastPercent);
 
-    // チャネル別ダイナミックレンジ圧縮（0..255 絶対値）。
-    // v' = min + round((max-min) * v / 255) ただし v==0 は 0 を維持。
-    // 対象チャネルのみ適用。出力は 0..255 にクリップ。上書き累積。
+    /** @brief 緑チャネルのレンジ圧縮を適用します。@param minV 最小 @param maxV 最大 @return 成功ならtrue */
     bool setGreenRange(std::uint8_t minV = 0, std::uint8_t maxV = 255);
+    /** @brief 赤チャネルのレンジ圧縮を適用します。@param minV 最小 @param maxV 最大 @return 成功ならtrue */
     bool setRedRange  (std::uint8_t minV = 0, std::uint8_t maxV = 255);
+    /** @brief 青チャネルのレンジ圧縮を適用します。@param minV 最小 @param maxV 最大 @return 成功ならtrue */
     bool setBlueRange (std::uint8_t minV = 0, std::uint8_t maxV = 255);
 
-    // 指定パターンの先頭ポインタを返す（非 const）。範囲外は nullptr。
+    /**
+     * @brief 指定パターンの先頭アドレスを返します。
+     * @param patternIndex 取得するパターン番号
+     * @return 先頭ポインタ（範囲外は nullptr）
+     */
     std::uint32_t* getBufferPtr(std::size_t patternIndex);
 
     // 便宜的なゲッター
-    inline std::size_t count() const { return count_; }
-    inline std::uint16_t width() const { return width_; }
-    inline std::uint16_t height() const { return height_; }
+    inline std::size_t count() const { return count_; }      ///< 保持パターン数
+    inline std::uint16_t width() const { return width_; }    ///< パターン幅
+    inline std::uint16_t height() const { return height_; }  ///< パターン高
 
 private:
-    std::unique_ptr<std::uint32_t[]> buf_; // ガンマ適用後の作業バッファのみ保持
-    std::size_t count_ { 0 };
-    std::uint16_t width_ { 0 };
-    std::uint16_t height_ { 0 };
+    std::unique_ptr<std::uint32_t[]> buf_; ///< 内部作業バッファ（0x00GGRRBB）
+    std::size_t count_ { 0 };              ///< パターン数
+    std::uint16_t width_ { 0 };            ///< 幅
+    std::uint16_t height_ { 0 };           ///< 高さ
 };

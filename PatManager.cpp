@@ -1,3 +1,7 @@
+/**
+ * @brief パターン管理（ガンマ/明度/コントラスト/各色レンジ補正）の実装。
+ * @details フラット配列(0x00GGRRBB)を内部に保持し、LUTベースで破壊的に変換します。
+ */
 #include "PatManager.h"
 #include "stdio.h"
 #include <cmath>
@@ -92,6 +96,10 @@ namespace {
     }
 }
 
+/**
+ * @brief 内部バッファとメタデータを初期化します。
+ * @return なし
+ */
 void PatManager::reset()
 {
 	buf_.reset();
@@ -101,12 +109,23 @@ void PatManager::reset()
 	height_ = 0;
 }
 
+/**
+ * @brief デストラクタ。内部リソースを解放します。
+ */
 PatManager::~PatManager()
 {
     // 明示的に解放してクリーンアップ
 	reset();
 }
 
+/**
+ * @brief フラット配列から内部バッファにコピーして初期化します。
+ * @param srcFlat 入力配列(0x00GGRRBB)
+ * @param count パターン数
+ * @param width 幅
+ * @param height 高さ
+ * @return 成功ならtrue
+ */
 bool PatManager::init(const std::uint32_t* srcFlat,
                       std::size_t count,
                       std::uint16_t width,
@@ -130,6 +149,11 @@ bool PatManager::init(const std::uint32_t* srcFlat,
 	return true;
 }
 
+/**
+ * @brief ガンマ補正をLUTで適用します。
+ * @param gamma ガンマ値(>0)
+ * @return 成功ならtrue
+ */
 bool PatManager::setGamma(float gamma)
 {
 	if (gamma <= 0.0f) return true;
@@ -143,6 +167,7 @@ bool PatManager::setGamma(float gamma)
     return true;
 }
 
+/** @brief 緑チャネルのレンジ圧縮を適用します。@param minV 最小 @param maxV 最大 @return 成功ならtrue */
 bool PatManager::setGreenRange(std::uint8_t minV, std::uint8_t maxV)
 {
 	if (minV == 0 && maxV == 0) return true;
@@ -154,6 +179,7 @@ bool PatManager::setGreenRange(std::uint8_t minV, std::uint8_t maxV)
     return true;
 }
 
+/** @brief 赤チャネルのレンジ圧縮を適用します。@param minV 最小 @param maxV 最大 @return 成功ならtrue */
 bool PatManager::setRedRange(std::uint8_t minV, std::uint8_t maxV)
 {
 	if (minV == 0 && maxV == 0) return true;
@@ -165,6 +191,7 @@ bool PatManager::setRedRange(std::uint8_t minV, std::uint8_t maxV)
     return true;
 }
 
+/** @brief 青チャネルのレンジ圧縮を適用します。@param minV 最小 @param maxV 最大 @return 成功ならtrue */
 bool PatManager::setBlueRange(std::uint8_t minV, std::uint8_t maxV)
 {
 	if (minV == 0 && maxV == 0) return true;
@@ -176,6 +203,11 @@ bool PatManager::setBlueRange(std::uint8_t minV, std::uint8_t maxV)
     return true;
 }
 
+/**
+ * @brief 指定パターン先頭ポインタを返します。
+ * @param patternIndex パターン番号
+ * @return 先頭ポインタ（範囲外はnullptr）
+ */
 std::uint32_t* PatManager::getBufferPtr(std::size_t patternIndex)
 {
     if (patternIndex >= count_ || !buf_) return nullptr;
@@ -183,6 +215,12 @@ std::uint32_t* PatManager::getBufferPtr(std::size_t patternIndex)
 	return buf_.get() + patternIndex * pixelsPerPat;
 }
 
+/**
+ * @brief 明度/コントラストをLUTで適用します（コントラスト→明度）。
+ * @param brightnessPercent 明度(-100..100)
+ * @param contrastPercent コントラスト(-100..100)
+ * @return 成功ならtrue
+ */
 bool PatManager::setBrightnessContrast(int brightnessPercent, int contrastPercent)
 {
 

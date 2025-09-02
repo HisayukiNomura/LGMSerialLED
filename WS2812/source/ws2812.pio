@@ -1,6 +1,6 @@
 .program ws2812
 .side_set  1 opt
-
+;
 ; WS2812 (800kHz) 用の標準的なPIOプログラム
 ; T1H/T0H, T1L/T0L をサイクル数で調整
 .define public T1 2

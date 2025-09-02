@@ -1,19 +1,13 @@
-// PIOベースのWS2812送信
-//
-// モジュール概要:
-// - PIOでWS2812(NeoPixel) の1線式プロトコルを生成し、VRAMからフレームを送出する。
-// - PIOプログラムは 1bit=10サイクル設計（T1/T2/T3合算）。SMクロックは 8MHz(=800kHz*10) を目安に分周。
-// - データはGRB順の24bit。CPU→PIOはTX FIFOにブロッキング書き込み。
-//
-// 期待される使い方の契約:
-// - フレーム送出開始前に Reset() を呼び、ScanBuffer() で全画素を送る。送出後は Keep() でHigh維持（任意）。
-// - VRAMは 0x00GGRRBB 形式で保持。SetPixel/Clear で更新し、Scan* 系で送出する。
-// - 物理配線が千鳥（serpentine）の場合は ScanPanel の走査順を調整する（コメント参照）。
-//
-// 注意事項/制約:
-// - 本実装はCPU供給（ポーリング）でFIFOを埋める。高解像度や高フレームレートではDMA化を検討。
-// - PIO側のタイミング（命令数）を変更した場合、cycles_per_bit も一致させる必要がある。
-// - Keep() はSMが有効であることを前提にHighを維持。SM無効化時はGPIO制御権が戻るため状態保持は保証しない。
+/**
+ * @brief PIOベースのWS2812送信モジュール。
+ * @details
+ * - PIOでWS2812(NeoPixel) の1線式プロトコルを生成し、VRAMからフレームを送出します。
+ * - PIOプログラムは 1bit=10サイクル設計（T1/T2/T3合算）。SMクロックは 8MHz(=800kHz*10) を目安に分周します。
+ * - データはGRB順の24bit。CPU→PIOはTX FIFOにブロッキング書き込みします。
+ * - フレーム送出前に Reset()、送出は ScanBuffer()/ScanPanel()、アイドル維持は Keep() を使用します。
+ * - VRAMは 0x00GGRRBB 形式。物理配線が千鳥（serpentine）の場合は走査順を調整します。
+ * - 高解像・高FPSではDMA化が有効。PIO命令数を改変した場合は分周計算(cycles_per_bit)を合わせてください。
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include "pico/stdlib.h"
@@ -35,6 +29,16 @@
  * @param offset       プログラムロードオフセット（pico_generate_pio_header 生成ヘッダのオフセット）
  * @param pin          データ出力GPIO番号
  * @param bit_freq_hz  ビットレート(例: 800000.0f)
+ */
+/**
+ * @brief WS2812送信用にPIOステートマシンを初期化します。
+ * @param pio 使用するPIO
+ * @param sm ステートマシン番号
+ * @param offset プログラムオフセット
+ * @param pin データ出力GPIO
+ * @param bit_freq_hz ビットレート(例:800kHz)
+ * @return なし
+ * @details sidesetピン割当、24bit MSB-first autopull、TX FIFO結合、分周設定を行います。
  */
 static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, float bit_freq_hz) {
 	// ステートマシン構成:
@@ -76,6 +80,14 @@ static inline void ws2812_program_init(PIO pio, uint sm, uint offset, uint pin, 
  * @param a_xPanelCount   パネルの水平方向枚数
  * @param a_yPanelCount   パネルの垂直方向枚数
  */
+/**
+ * @brief コンストラクタ。PIO/SM初期化とVRAM確保を行います。
+ * @param pin データ出力GPIO
+ * @param a_xSize パネル幅
+ * @param a_ySize パネル高
+ * @param a_xPanelCount パネル数(横)
+ * @param a_yPanelCount パネル数(縦)
+ */
 WS2812::WS2812(uint8_t pin,uint8_t a_xSize, uint8_t a_ySize , uint8_t a_xPanelCount,uint8_t a_yPanelCount) 
 	: m_pin(pin) , xSize(a_xSize), ySize(a_ySize), xPanelCount(a_xPanelCount), yPanelCount(a_yPanelCount)
 {
@@ -110,6 +122,11 @@ WS2812::WS2812(uint8_t pin,uint8_t a_xSize, uint8_t a_ySize , uint8_t a_xPanelCo
  *
  * @note フレーム送信前のラッチに使用します。
  */
+/**
+ * @brief リセットラッチ（>50us Low）を出力します。
+ * @return なし
+ * @details SM再起動→out0へJMP→待機→先頭へ復帰の順で実現します。
+ */
 void WS2812::Reset() {
 	// 送信前ラッチ手順:
 	// 1) SMを停止→FIFOクリア→リスタートで内部状態を既知化
@@ -136,6 +153,10 @@ void WS2812::Reset() {
  *
  * PIOプログラムの idle ループへジャンプして、ラインを High に保ちます。
  */
+/**
+ * @brief アイドル時の High 出力を維持します。
+ * @return なし
+ */
 void WS2812::Keep()
 {
 	// アイドル維持:
@@ -150,6 +171,13 @@ void WS2812::Keep()
  * @param b 青(0-255)
  * @note VRAMを使わず直接送信します。フレーム送信には ScanPanel/ScanBuffer を推奨。
  */
+/**
+ * @brief 1ピクセル分の GRB を即時送信します（ブロッキング）。
+ * @param r 赤(0-255)
+ * @param g 緑(0-255)
+ * @param b 青(0-255)
+ * @return なし
+ */
 void WS2812::setColorDirect(uint8_t r, uint8_t g, uint8_t b) {
 	// 即時送信（ブロッキング）:
 	// - PIOのシフトはMSBファースト/24bit自動プル。
@@ -162,6 +190,11 @@ void WS2812::setColorDirect(uint8_t r, uint8_t g, uint8_t b) {
  * @brief 24bit GRB 値を即時送信します（ブロッキング）。
  * @param c 0x00GGRRBB 形式の24bitカラー（GRB順）
  */
+/**
+ * @brief 24bit GRB 値(0x00GGRRBB)を即時送信します。
+ * @param c 0x00GGRRBB
+ * @return なし
+ */
 void WS2812::setColorDirect(uint32_t c)
 {
 	// 入力形式: 0x00GGRRBB（上位8bit未使用）。左へ8bitシフトして上位24bitに配置。
@@ -169,6 +202,10 @@ void WS2812::setColorDirect(uint32_t c)
 }
 /**
  * @brief テスト用にランダム色を1ピクセル送信します。
+ */
+/**
+ * @brief テスト用にランダム色を1ピクセル送信します。
+ * @return なし
  */
 void WS2812::fillRandomColorDirect() {
 	static uint32_t s = 0x12345678u;
@@ -188,6 +225,11 @@ void WS2812::fillRandomColorDirect() {
  * @brief VRAM全体を指定色で塗りつぶします。
  * @param rgb 24bit GRB カラー
  */
+/**
+ * @brief VRAM全体を指定色で塗りつぶします。
+ * @param rgb 0x00GGRRBB
+ * @return なし
+ */
 void WS2812::Clear(uint32_t rgb)
 {
 	// VRAM全体を1色で初期化。描画のベース色や消去に使用。
@@ -199,6 +241,13 @@ void WS2812::Clear(uint32_t rgb)
  * @param y Y座標（0..yVRam-1）
  * @param rgb 24bit GRB カラー
  */
+/**
+ * @brief 指定座標のピクセル値を設定します（VRAMのみ）。
+ * @param x X座標
+ * @param y Y座標
+ * @param rgb 0x00GGRRBB
+ * @return なし
+ */
 void WS2812::SetPixel(uint16_t x, uint16_t y, uint32_t rgb)
 {
 	// 範囲内なら1画素だけ更新（VRAM）。送信は行わない。
@@ -209,6 +258,14 @@ void WS2812::SetPixel(uint16_t x, uint16_t y, uint32_t rgb)
  * @brief 1パネル分のデータを送信します（VRAM→PIO）。
  * @param posX パネル左上のVRAM X座標
  * @param posY パネル左上のVRAM Y座標
+ */
+/**
+ * @brief 1パネル分のデータを送信します（VRAM→PIO）。
+ * @param posX パネル左上のVRAM X
+ * @param posY パネル左上のVRAM Y
+ * @param serpentine 千鳥配線（行ごと反転）
+ * @param leftToRight 偶数行の基準方向
+ * @return なし
  */
 void WS2812::ScanPanel(uint8_t posX, uint8_t posY, bool serpentine, bool leftToRight)
 {
@@ -241,6 +298,13 @@ void WS2812::ScanPanel(uint8_t posX, uint8_t posY, bool serpentine, bool leftToR
  * @param panelY パネルYインデックス（0..yPanelCount-1）
  * @param rgb    24bit GRB カラー
  */
+/**
+ * @brief 指定パネルの外枠をVRAMへ描画します。
+ * @param panelX Xインデックス
+ * @param panelY Yインデックス
+ * @param rgb 0x00GGRRBB
+ * @return なし
+ */
 void WS2812::DrawPanelBorder(uint8_t panelX, uint8_t panelY, uint32_t rgb)
 {
 	if (panelX >= xPanelCount || panelY >= yPanelCount) return;
@@ -263,6 +327,10 @@ void WS2812::DrawPanelBorder(uint8_t panelX, uint8_t panelY, uint32_t rgb)
  * @brief 全パネルの外枠をランダム色で塗ります（VRAMのみ）。
  * @note 現実装は行（panelY）ごとに同一色になります。
  */
+/**
+ * @brief 全パネルの外枠をランダム色で描画します（VRAM）。
+ * @return なし
+ */
 void WS2812::DrawRandomBorders()
 {
 	// 行（panelY）単位で色を変える簡易デモ。
@@ -283,6 +351,18 @@ void WS2812::DrawRandomBorders()
 	}
 }
 
+/**
+ * @brief 任意のパターン配列をVRAMにブレンド/置換して描画します。
+ * @param pattern 0x00GGRRBB配列（width*height）
+ * @param width パターン幅
+ * @param height パターン高さ
+ * @param X VRAM貼り付け先 左上X
+ * @param y VRAM貼り付け先 左上Y
+ * @param colorReplace 置換色（0で無効）
+ * @param isOverlay 黒を透明扱い
+ * @return なし
+ * @details colorReplace!=0 の場合は非0画素を置換色で塗り、0画素は isOverlay に応じて透過/黒上書きします。
+ */
 void WS2812::DrawBuffer(const uint32_t pattern[], uint8_t width, uint8_t height, uint8_t X, uint8_t y,uint32_t colorReplace,bool isOverlay)
 {
 	bool bisReplace = colorReplace != 0x0;
@@ -317,6 +397,12 @@ void WS2812::DrawBuffer(const uint32_t pattern[], uint8_t width, uint8_t height,
  *
  * 左上から右下へパネル順に送信します。
  *
+ */
+/**
+ * @brief 全パネルを走査してVRAMからフレームを送信します。
+ * @param serpentine 千鳥配線
+ * @param leftToRight 偶数行の基準方向
+ * @return なし
  */
 void WS2812::ScanBuffer(bool serpentine, bool leftToRight)
 {
