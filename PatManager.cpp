@@ -92,6 +92,21 @@ namespace {
     }
 }
 
+void PatManager::reset()
+{
+	buf_.reset();
+	isInitialized = false;
+	count_ = 0;
+	width_ = 0;
+	height_ = 0;
+}
+
+PatManager::~PatManager()
+{
+    // 明示的に解放してクリーンアップ
+	reset();
+}
+
 bool PatManager::init(const std::uint32_t* srcFlat,
                       std::size_t count,
                       std::uint16_t width,

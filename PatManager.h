@@ -9,9 +9,15 @@
 // - 元データの保持は不要という要件のため、setGamma は内部作業バッファを上書きで適用。
 // - 複数インスタンス生成可。
 class PatManager {
-    bool isInitialized = false;
 public:
-    PatManager() = default;
+    bool isInitialized;
+public:
+    PatManager() {
+        isInitialized = false;
+    }
+    ~PatManager();
+	void reset();
+    
 
     // 初期化: フラット配列 srcFlat から count 個のパターン（各 width*height ピクセル）をコピーして内部保持。
     // 戻り値: 成功 true / 失敗 false（引数不正や確保失敗など）。

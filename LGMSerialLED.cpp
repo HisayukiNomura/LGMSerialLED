@@ -15,9 +15,13 @@
 #include "PatSignal.h" // パターン配列とカウント
 #include "PatMario.h" // マリオのパターン配列とカウント
 #include "PatZelda.h"	// ゼルダのパターン配列とカウント
+#include "PatKirby.h"	// カービィのパターン配列とカウント
+#include "PatDQ3.h"		// ドラクエ3のパターン配列とカウント
+
 #include "./WS2812/include/GammaCorrector.h"
 #include "PatManager.h"
 static volatile uint8_t timer_count = 0;
+static volatile bool timer_change = false;
 
 enum STATE {
 	STATE_HIBER = 0,
@@ -106,6 +110,7 @@ bool one_shot_cb(repeating_timer_t* rt)
 {
 	(void)rt;
 	timer_count++;
+	timer_change = true;
 	if (timer_count >= 6) {
 		timer_count = 0;
 		iState = STATE_STOP;
@@ -148,6 +153,10 @@ class Patterns {
 
 	void setPatManager(PatManager &pmStay,  PatManager* pmRun) 
 	{
+		pmStay.reset();
+		for (int i = 0; i < 4; i++) {
+			if (pmRun[i].isInitialized) pmRun[i].reset();
+		}	
 		pmStay.init(PatStopFlat, 1, 16, 16);
 		pmStay.setGreenRange(GreenRange.min, GreenRange.max);
 		pmStay.setRedRange(RedRange.min, RedRange.max);
@@ -155,20 +164,27 @@ class Patterns {
 		if (Gamma > 0.0f) pmStay.setGamma(Gamma);
 		if (BrightnessPercent !=0 || ContrastPercent != 0) pmStay.setBrightnessContrast(BrightnessPercent, ContrastPercent);
 
-		pmRun[0].init(PatWalkFlat[0], PatWalkCount, 16, 16);
-		pmRun[0].setGreenRange(GreenRange.min, GreenRange.max);
-		pmRun[0].setRedRange(RedRange.min, RedRange.max);
-		pmRun[0].setBlueRange(BlueRange.min, BlueRange.max);
-		if (Gamma > 0.0f) pmRun[0].setGamma(Gamma);
-		if (BrightnessPercent !=0 || ContrastPercent != 0) pmRun[0].setBrightnessContrast(BrightnessPercent, ContrastPercent);
+		for (int i = 0; i < 4; i++) {
+			if (PatWalkFlat[i] == NULL) break;
+
+			pmRun[i].init(PatWalkFlat[i], PatWalkCount, 16, 16);
+			pmRun[i].setGreenRange(GreenRange.min, GreenRange.max);
+			pmRun[i].setRedRange(RedRange.min, RedRange.max);
+			pmRun[i].setBlueRange(BlueRange.min, BlueRange.max);
+			if (Gamma > 0.0f) pmRun[i].setGamma(Gamma);
+			if (BrightnessPercent != 0 || ContrastPercent != 0) pmRun[i].setBrightnessContrast(BrightnessPercent, ContrastPercent);
+		}
 
 	}
 
 } CharInfo[] = {
 	{LGMRed, {&LGMPat[0][0], NULL, NULL, NULL}, LGMPatCount, {0, 0}, {0, 0}, {0, 0}, 1.0f, 0, 0, true, true, iWaitLGMWalk, iWaitLGMRun},
-	{MROStay, {&MRORun[0][0], NULL, NULL, NULL}, MROPatCount, {0, 16}, {8, 32}, {8, 48}, 1.0f, 0, 0, false, false, iWaitMarioWalk, iWaitMarioRun},
-	{ZELDAStay, {&ZELDARight[0][0], &ZELDAFront[0][0], &ZELDALeft[0][0], &ZELDABack[0][0]}, ZELDARightCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitZELDAWalk, iWaitZELDARun}};
+	{MROStay, {&MRORun[0][0], NULL, NULL, NULL}, MROPatCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitMarioWalk, iWaitMarioRun},
+	{ZELDAStay, {&ZELDARight[0][0], &ZELDAFront[0][0], &ZELDALeft[0][0], &ZELDABack[0][0]}, ZELDARightCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitZeldaWalk, iWaitZeldaRun},
+	{KirbyStay, {&KirbyWalk[0][0], &KirbyRoll[0][0], NULL, NULL}, KirbyWalkCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitKirbyWalk, iWaitKirbyRun},
+	{DQ3Stay, {&DQ3Right[0][0], &DQ3Front[0][0], &DQ3Left[0][0], &DQ3Back[0][0]}, DQ3RightCount, {0, 16}, {0, 16}, {0, 16}, 1.0f, 0, 0, false, false, iWaitDQ3Walk, iWaitDQ3Run},
 
+};
 PatManager pmRun[4];
 PatManager pmStay;
 int main()
@@ -203,7 +219,8 @@ int main()
 
 	int iCharNo = 0;
 	set_sys_clock_khz(125000, true);
-	
+
+	uint8_t patGrpNo = 0;
 
 	while (true) {
 
@@ -280,18 +297,28 @@ int main()
 					iWaitMs = CharInfo[iCharNo].iWaitRun;
 					iTransMs = iWaitMs / 6;
 				}
+				if (timer_change) {
+					timer_change = false;
+					patGrpNo++;
+					if (patGrpNo >= 4) patGrpNo = 0;
+					if (pmRun[patGrpNo].isInitialized == false) {
+						patGrpNo = 0;
+					}
+				}
+
+
 				// 一つ前のパターンを暗く表示
 				led_matrix.Clear(0);
 
 				led_matrix.Reset();
 				if (CharInfo[iCharNo].isColorReplace) {
-					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(prevPatNo)); // 明示的にconstへ
-					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun[patGrpNo].getBufferPtr(prevPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun[patGrpNo].getBufferPtr(currPatNo)); // 明示的にconstへ
 					led_matrix.DrawBuffer(bufPrev, 16, 16, 0, 0, 0x030000, CharInfo[iCharNo].isOverlay);              // パターンを描画 (オーバーレイで短い時間を表示)
 					led_matrix.DrawBuffer(bufCurr, 16, 16, 0, 0, 0x060000, CharInfo[iCharNo].isOverlay);             // パターンを描画 (オーバーレイで短い時間を表示)
 				} else {
-					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(prevPatNo)); // 明示的にconstへ
-					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufPrev = static_cast<const std::uint32_t*>(pmRun[patGrpNo].getBufferPtr(prevPatNo)); // 明示的にconstへ
+					const std::uint32_t* bufCurr = static_cast<const std::uint32_t*>(pmRun[patGrpNo].getBufferPtr(currPatNo)); // 明示的にconstへ
 					led_matrix.DrawBuffer(bufPrev, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画 (オーバーレイで短い時間を表示)
 					led_matrix.DrawBuffer(bufCurr, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画 (オーバーレイで短い時間を表示)
 				}
@@ -300,10 +327,10 @@ int main()
 
 				led_matrix.Reset();
 				if (CharInfo[iCharNo].isColorReplace) {
-					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo));    // 明示的にconstへ
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun[patGrpNo].getBufferPtr(currPatNo)); // 明示的にconstへ
 					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0x070000, CharInfo[iCharNo].isOverlay);                // パターンを描画
 				} else {
-					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun[0].getBufferPtr(currPatNo)); // 明示的にconstへ
+					const std::uint32_t* buf = static_cast<const std::uint32_t*>(pmRun[patGrpNo].getBufferPtr(currPatNo));         // 明示的にconstへ
 					led_matrix.DrawBuffer(buf, 16, 16, 0, 0, 0, CharInfo[iCharNo].isOverlay);                                      // パターンを描画
 				}
 				led_matrix.ScanBuffer(true, false);

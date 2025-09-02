@@ -175,5 +175,5 @@ extern const std::size_t ZELDARightCount = sizeof(ZELDARight) / sizeof(ZELDARigh
 extern const std::size_t ZELDAFrontCount = sizeof(ZELDAFront) / sizeof(ZELDAFront[0]);
 extern const std::size_t ZELDABackCount = sizeof(ZELDABack) / sizeof(ZELDABack[0]);
 
-extern const std::uint16_t iWaitMarioWalk = 80;
-extern const std::uint16_t iWaitMarioRun = 60;
+extern const std::uint16_t iWaitZeldaWalk = 240;
+extern const std::uint16_t iWaitZeldaRun = 120;

@@ -17,6 +17,6 @@ extern const std::size_t ZELDAFrontCount;
 extern const std::size_t ZELDABackCount;
 
 // 歩く速度
-extern const std::uint16_t iWaitZELDAWalk;
-extern const std::uint16_t iWaitZELDARun;
+extern const std::uint16_t iWaitZeldaWalk;
+extern const std::uint16_t iWaitZeldaRun;
 
