@@ -41,12 +41,11 @@ enum STATE {
 };
 STATE iState = STATE_HIBER; ///< 現在の状態（開始=休止）
 
-// デバウンス付き：押下（プルアップなので Active-Low）を1回だけ検出
-// 任意GPIOのボタンを処理できるよう、GPIOごとに状態を保持する
 /**
  * @brief デバウンス付きのボタン押下検出（Active-Low, 1回/押下）。
  * @param gpio_pin 対象GPIO
  * @return 押下エッジでtrue（1回のみ）
+ * @details デバウンス付き：押下（プルアップなので Active-Low）を1回だけ検出。任意GPIOのボタンを処理できるよう、GPIOごとに状態を保持する
  */
 static bool button_pressed(uint gpio_pin)
 {
