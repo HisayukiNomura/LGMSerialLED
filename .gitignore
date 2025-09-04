@@ -1,0 +1,35 @@
+# Build artifacts
+build/
+*.o
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+*.dis
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# CMake cache and build files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Pico SDK cache
+_deps/

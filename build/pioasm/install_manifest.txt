@@ -1,5 +1,0 @@
-/home/runner/work/LGMSerialLED/LGMSerialLED/build/pioasm-install/pioasm/pioasm
-/home/runner/work/LGMSerialLED/LGMSerialLED/build/pioasm-install/pioasm/pioasmTargets.cmake
-/home/runner/work/LGMSerialLED/LGMSerialLED/build/pioasm-install/pioasm/pioasmTargets-release.cmake
-/home/runner/work/LGMSerialLED/LGMSerialLED/build/pioasm-install/pioasm/pioasmConfig.cmake
-/home/runner/work/LGMSerialLED/LGMSerialLED/build/pioasm-install/pioasm/pioasmConfigVersion.cmake
